@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure File Upload</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        .upload-area.drag-over {
+            border-color: #667eea;
+            background: #e8ebff;
+        }
+        .file-input {
+            display: none;
+        }
+        .file-info {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .file-name {
+            font-weight: bold;
+            color: #333;
+            word-break: break-all;
+        }
+        .file-size {
+            color: #666;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .progress {
+            margin-top: 20px;
+            display: none;
+        }
+        .progress-bar {
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            height: 20px;
+        }
+        .progress-fill {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            height: 100%;
+            transition: width 0.3s;
+            border-radius: 10px;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 8px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            display: block;
+        }
+        .multiple-upload {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        .queue-item {
+            background: #f9f9f9;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 File Uploader</h1>
+        <div class="subtitle">Secure & Fast CDN-powered uploads</div>
+        
+        <div class="upload-area" id="uploadArea">
+            <div>📁 Click or drag files here</div>
+            <div style="font-size: 12px; margin-top: 10px; color: #999;">
+                Max file size: 5MB (Lambda limit)
+            </div>
+        </div>
+        <input type="file" id="fileInput" class="file-input" multiple>
+        
+        <div class="file-info" id="fileInfo">
+            <div class="file-name" id="fileName"></div>
+            <div class="file-size" id="fileSize"></div>
+        </div>
+        
+        <button id="uploadBtn" disabled>Upload File</button>
+        
+        <div class="progress" id="progress">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div style="margin-top: 10px; font-size: 12px; text-align: center;" id="progressText">0%</div>
+        </div>
+        
+        <div class="status" id="status"></div>
+        
+        <div class="multiple-upload">
+            <button id="multipleBtn" style="background: #28a745;">Upload Multiple (Queue)</button>
+        </div>
+        <div id="queueStatus"></div>
+    </div>
+
+    <script>
+        // CORRECT LAMBDA URL - Verified working
+        const AWS_LAMBDA_URL = 'https://txghrx7mvhahq6jiilqqivcf7i0sawww.lambda-url.us-east-1.on.aws/upload';
+        
+        let selectedFiles = [];
+        
+        // DOM Elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const progress = document.getElementById('progress');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const statusDiv = document.getElementById('status');
+        const multipleBtn = document.getElementById('multipleBtn');
+        const queueStatus = document.getElementById('queueStatus');
+        
+        // Drag and drop handlers
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            handleFiles(e.dataTransfer.files);
+        });
+        
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+        
+        function handleFiles(files) {
+            selectedFiles = Array.from(files);
+            if (selectedFiles.length > 0) {
+                const file = selectedFiles[0];
+                fileName.textContent = file.name;
+                fileSize.textContent = formatBytes(file.size);
+                fileInfo.style.display = 'block';
+                uploadBtn.disabled = false;
+                
+                if (file.size > 5 * 1024 * 1024) {
+                    showStatus('File too large! Max 5MB', 'error');
+                    uploadBtn.disabled = true;
+                }
+            } else {
+                fileInfo.style.display = 'none';
+                uploadBtn.disabled = true;
+            }
+        }
+        
+        uploadBtn.addEventListener('click', () => {
+            if (selectedFiles.length > 0) {
+                uploadFile(selectedFiles[0]);
+            }
+        });
+        
+        async function uploadFile(file, isMultiple = false) {
+            if (!isMultiple) {
+                progress.style.display = 'block';
+                uploadBtn.disabled = true;
+                hideStatus();
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('filename', file.name);
+            formData.append('timestamp', Date.now().toString());
+            
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percent = (e.loaded / e.total) * 100;
+                        if (!isMultiple) {
+                            progressFill.style.width = percent + '%';
+                            progressText.textContent = Math.round(percent) + '%';
+                        }
+                    }
+                });
+                
+                xhr.addEventListener('load', () => {
+                    if (xhr.status === 200) {
+                        if (!isMultiple) {
+                            showStatus(`✅ ${file.name} uploaded successfully!`, 'success');
+                            progressFill.style.width = '100%';
+                        }
+                        resolve(xhr.response);
+                    } else {
+                        const error = `Upload failed: ${xhr.status}`;
+                        if (!isMultiple) {
+                            showStatus(error, 'error');
+                        }
+                        reject(error);
+                    }
+                    
+                    if (!isMultiple) {
+                        setTimeout(() => {
+                            progress.style.display = 'none';
+                            progressFill.style.width = '0%';
+                            uploadBtn.disabled = false;
+                        }, 2000);
+                    }
+                });
+                
+                xhr.addEventListener('error', () => {
+                    reject('Network error');
+                });
+                
+                xhr.open('POST', AWS_LAMBDA_URL);
+                xhr.setRequestHeader('X-File-Name', file.name);
+                xhr.send(formData);
+            });
+        }
+        
+        multipleBtn.addEventListener('click', async () => {
+            if (selectedFiles.length === 0) {
+                showStatus('Please select files first', 'error');
+                return;
+            }
+            
+            multipleBtn.disabled = true;
+            queueStatus.innerHTML = '<div class="queue-item">📤 Starting upload queue...</div>';
+            
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const file = selectedFiles[i];
+                updateQueueStatus(`Uploading ${i+1}/${selectedFiles.length}: ${file.name}`, i, selectedFiles.length);
+                
+                try {
+                    await uploadFile(file, true);
+                    successCount++;
+                    updateQueueStatus(`✅ Completed: ${file.name}`, i+1, selectedFiles.length);
+                } catch (error) {
+                    failCount++;
+                    updateQueueStatus(`❌ Failed: ${file.name}`, i+1, selectedFiles.length);
+                }
+            }
+            
+            updateQueueStatus(`📊 Complete! Success: ${successCount}, Failed: ${failCount}`, selectedFiles.length, selectedFiles.length);
+            multipleBtn.disabled = false;
+        });
+        
+        function updateQueueStatus(message, current, total) {
+            queueStatus.innerHTML = `
+                <div class="queue-item">
+                    <div>${message}</div>
+                    <div class="progress-bar" style="margin-top: 10px;">
+                        <div class="progress-fill" style="width: ${(current/total)*100}%; background: #28a745;"></div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        }
+        
+        function hideStatus() {
+            statusDiv.style.display = 'none';
+        }
+        
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        console.log('Uploader ready!');
+    </script>
+</body>
+</html>
