@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Azure Blob SAS Uploader</title>
+<style>
+  :root{
+    --bg:#0f1420;
+    --panel:#161d2e;
+    --border:#2a3448;
+    --text:#e7ecf5;
+    --muted:#8b96ab;
+    --accent:#4f8cff;
+    --accent-hover:#6fa1ff;
+    --ok:#3ecf8e;
+    --err:#ff6b6b;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    min-height:100vh;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    padding:48px 20px;
+  }
+  .card{
+    width:100%;
+    max-width:560px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:12px;
+    padding:32px;
+  }
+  h1{
+    font-size:20px;
+    margin:0 0 4px;
+    font-weight:600;
+  }
+  .subtitle{
+    color:var(--muted);
+    font-size:13px;
+    margin:0 0 28px;
+    line-height:1.5;
+  }
+  label{
+    display:block;
+    font-size:13px;
+    font-weight:600;
+    margin-bottom:6px;
+    color:var(--text);
+  }
+  .hint{
+    font-size:12px;
+    color:var(--muted);
+    margin:4px 0 0;
+    line-height:1.4;
+  }
+  .field{
+    margin-bottom:20px;
+  }
+  input[type="text"], input[type="password"]{
+    width:100%;
+    padding:10px 12px;
+    background:#0c111c;
+    border:1px solid var(--border);
+    border-radius:8px;
+    color:var(--text);
+    font-size:13px;
+    font-family:var(--mono);
+    outline:none;
+  }
+  input[type="text"]:focus, input[type="password"]:focus{
+    border-color:var(--accent);
+  }
+  .file-drop{
+    border:1.5px dashed var(--border);
+    border-radius:8px;
+    padding:20px;
+    text-align:center;
+    cursor:pointer;
+    transition:border-color .15s, background .15s;
+    background:#0c111c;
+  }
+  .file-drop:hover, .file-drop.drag{
+    border-color:var(--accent);
+    background:#101828;
+  }
+  .file-drop input{display:none;}
+  .file-drop .fname{
+    font-size:13px;
+    color:var(--text);
+    word-break:break-all;
+  }
+  .file-drop .fname.empty{color:var(--muted);}
+  .file-meta{
+    font-size:12px;
+    color:var(--muted);
+    margin-top:4px;
+  }
+  .row{
+    display:flex;
+    gap:12px;
+  }
+  .row .field{flex:1;}
+  button{
+    width:100%;
+    padding:12px;
+    background:var(--accent);
+    border:none;
+    border-radius:8px;
+    color:#fff;
+    font-size:14px;
+    font-weight:600;
+    cursor:pointer;
+    transition:background .15s;
+  }
+  button:hover:not(:disabled){background:var(--accent-hover);}
+  button:disabled{
+    background:#2a3448;
+    color:var(--muted);
+    cursor:not-allowed;
+  }
+  .progress-wrap{
+    margin-top:16px;
+    display:none;
+  }
+  .progress-wrap.show{display:block;}
+  .progress-bar{
+    height:8px;
+    background:#0c111c;
+    border-radius:4px;
+    overflow:hidden;
+    border:1px solid var(--border);
+  }
+  .progress-fill{
+    height:100%;
+    width:0%;
+    background:var(--accent);
+    transition:width .1s linear;
+  }
+  .progress-label{
+    font-size:12px;
+    color:var(--muted);
+    margin-top:6px;
+    display:flex;
+    justify-content:space-between;
+  }
+  .status{
+    margin-top:16px;
+    padding:12px 14px;
+    border-radius:8px;
+    font-size:13px;
+    line-height:1.5;
+    display:none;
+    word-break:break-word;
+  }
+  .status.show{display:block;}
+  .status.ok{
+    background:rgba(62,207,142,0.1);
+    border:1px solid rgba(62,207,142,0.3);
+    color:var(--ok);
+  }
+  .status.err{
+    background:rgba(255,107,107,0.1);
+    border:1px solid rgba(255,107,107,0.3);
+    color:var(--err);
+  }
+  .status a{color:inherit; font-weight:600;}
+  .advanced-toggle{
+    font-size:12px;
+    color:var(--muted);
+    cursor:pointer;
+    text-decoration:underline;
+    margin-bottom:16px;
+    display:inline-block;
+  }
+  .advanced{
+    display:none;
+  }
+  .advanced.show{display:block;}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Blob SAS Uploader</h1>
+  <p class="subtitle">Upload a file straight to Azure Blob Storage using a SAS token. Nothing leaves your browser except the direct request to your storage account.</p>
+
+  <div class="field">
+    <label for="sasUrl">SAS URL</label>
+    <input type="text" id="sasUrl" placeholder="https://account.blob.core.windows.net/container?sv=...&sig=..." autocomplete="off">
+    <p class="hint">Paste the container (or blob) SAS URL, including the query string. If it's a container URL, the file name will be appended automatically.</p>
+  </div>
+
+  <div class="field">
+    <label for="fileInput">File</label>
+    <div class="file-drop" id="dropZone">
+      <input type="file" id="fileInput">
+      <div class="fname empty" id="fileName">Click to choose a file, or drag one here</div>
+      <div class="file-meta" id="fileMeta"></div>
+    </div>
+  </div>
+
+  <span class="advanced-toggle" id="advToggle">Advanced options ▾</span>
+  <div class="advanced" id="advanced">
+    <div class="field">
+      <label for="blobName">Blob name override (optional)</label>
+      <input type="text" id="blobName" placeholder="e.g. uploads/2026/myfile.zip" autocomplete="off">
+      <p class="hint">Leave blank to use the file's own name.</p>
+    </div>
+    <div class="field">
+      <label for="contentType">Content-Type override (optional)</label>
+      <input type="text" id="contentType" placeholder="auto-detected from file" autocomplete="off">
+    </div>
+  </div>
+
+  <button id="uploadBtn">Upload to Blob Storage</button>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-label"><span id="progressPct">0%</span><span id="progressBytes"></span></div>
+  </div>
+
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+const sasUrlInput = document.getElementById('sasUrl');
+const fileInput = document.getElementById('fileInput');
+const dropZone = document.getElementById('dropZone');
+const fileNameEl = document.getElementById('fileName');
+const fileMetaEl = document.getElementById('fileMeta');
+const blobNameInput = document.getElementById('blobName');
+const contentTypeInput = document.getElementById('contentType');
+const uploadBtn = document.getElementById('uploadBtn');
+const progressWrap = document.getElementById('progressWrap');
+const progressFill = document.getElementById('progressFill');
+const progressPct = document.getElementById('progressPct');
+const progressBytes = document.getElementById('progressBytes');
+const statusEl = document.getElementById('status');
+const advToggle = document.getElementById('advToggle');
+const advanced = document.getElementById('advanced');
+
+let selectedFile = null;
+
+advToggle.addEventListener('click', () => {
+  advanced.classList.toggle('show');
+  advToggle.textContent = advanced.classList.contains('show') ? 'Advanced options ▴' : 'Advanced options ▾';
+});
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag');
+  if (e.dataTransfer.files.length) {
+    fileInput.files = e.dataTransfer.files;
+    handleFileSelect();
+  }
+});
+fileInput.addEventListener('change', handleFileSelect);
+
+function handleFileSelect(){
+  const f = fileInput.files[0];
+  if (!f) { selectedFile = null; fileNameEl.textContent = 'Click to choose a file, or drag one here'; fileNameEl.classList.add('empty'); fileMetaEl.textContent=''; return; }
+  selectedFile = f;
+  fileNameEl.textContent = f.name;
+  fileNameEl.classList.remove('empty');
+  fileMetaEl.textContent = formatBytes(f.size) + (f.type ? ' · ' + f.type : '');
+}
+
+function formatBytes(bytes){
+  if (bytes === 0) return '0 B';
+  const units = ['B','KB','MB','GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
+function showStatus(type, html){
+  statusEl.className = 'status show ' + type;
+  statusEl.innerHTML = html;
+}
+
+function buildTargetUrl(sasUrl, blobNameOverride, fileName){
+  let urlObj;
+  try {
+    urlObj = new URL(sasUrl.trim());
+  } catch (e) {
+    throw new Error('That doesn\'t look like a valid URL.');
+  }
+  const query = urlObj.search;
+  const base = urlObj.origin + urlObj.pathname.replace(/\/$/, '');
+  const name = (blobNameOverride && blobNameOverride.trim()) || fileName;
+  // path parts count: account.blob.core.windows.net/<container>/<possible-blob-path>
+  const pathParts = urlObj.pathname.split('/').filter(Boolean);
+
+  let finalPath;
+  if (pathParts.length <= 1) {
+    // container-level SAS: base + '/' + blobname
+    finalPath = base + '/' + name.split('/').map(encodeURIComponent).join('/');
+  } else {
+    // already a blob-level URL (container + blob path) -> use as-is unless override given
+    if (blobNameOverride && blobNameOverride.trim()) {
+      const container = pathParts[0];
+      finalPath = urlObj.origin + '/' + container + '/' + name.split('/').map(encodeURIComponent).join('/');
+    } else {
+      finalPath = base;
+    }
+  }
+  return finalPath + query;
+}
+
+uploadBtn.addEventListener('click', () => {
+  statusEl.className = 'status';
+  const sasUrl = sasUrlInput.value.trim();
+
+  if (!sasUrl) {
+    showStatus('err', 'Paste a SAS URL first.');
+    return;
+  }
+  if (!selectedFile) {
+    showStatus('err', 'Choose a file to upload.');
+    return;
+  }
+
+  let targetUrl;
+  try {
+    targetUrl = buildTargetUrl(sasUrl, blobNameInput.value, selectedFile.name);
+  } catch (e) {
+    showStatus('err', e.message);
+    return;
+  }
+
+  const contentType = contentTypeInput.value.trim() || selectedFile.type || 'application/octet-stream';
+
+  uploadBtn.disabled = true;
+  uploadBtn.textContent = 'Uploading…';
+  progressWrap.classList.add('show');
+  progressFill.style.width = '0%';
+  progressPct.textContent = '0%';
+  progressBytes.textContent = '0 B / ' + formatBytes(selectedFile.size);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('PUT', targetUrl, true);
+  xhr.setRequestHeader('x-ms-blob-type', 'BlockBlob');
+  xhr.setRequestHeader('x-ms-version', '2021-08-06');
+  xhr.setRequestHeader('Content-Type', contentType);
+
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) {
+      const pct = Math.round((e.loaded / e.total) * 100);
+      progressFill.style.width = pct + '%';
+      progressPct.textContent = pct + '%';
+      progressBytes.textContent = formatBytes(e.loaded) + ' / ' + formatBytes(e.total);
+    }
+  };
+
+  xhr.onload = () => {
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = 'Upload to Blob Storage';
+    if (xhr.status >= 200 && xhr.status < 300) {
+      const cleanUrl = targetUrl.split('?')[0];
+      showStatus('ok', 'Upload complete.<br>' + '<a href="' + cleanUrl + '" target="_blank" rel="noopener">' + cleanUrl + '</a>');
+    } else {
+      showStatus('err', 'Upload failed (HTTP ' + xhr.status + ').<br>' + escapeHtml(xhr.responseText || 'No response body — check the SAS token permissions/expiry and CORS settings on the storage account.'));
+    }
+  };
+
+  xhr.onerror = () => {
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = 'Upload to Blob Storage';
+    showStatus('err', 'Network or CORS error. Make sure the storage account has CORS enabled for this origin, and that the SAS token is valid and has write permission.');
+  };
+
+  xhr.send(selectedFile);
+});
+
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+</script>
+
+</body>
+</html>
