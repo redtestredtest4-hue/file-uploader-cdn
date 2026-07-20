@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Blob Storage Uploader</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 20px;
+        }
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        .upload-area.drag-over {
+            border-color: #667eea;
+            background: #e8ebff;
+        }
+        .file-input {
+            display: none;
+        }
+        .file-info {
+            background: #f5f5f5;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .progress {
+            margin-top: 20px;
+            display: none;
+        }
+        .progress-bar {
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            height: 20px;
+        }
+        .progress-fill {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            height: 100%;
+            transition: width 0.3s;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 8px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            display: block;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            display: block;
+        }
+        .info {
+            background: #e7f3ff;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            margin-top: 20px;
+            color: #0066cc;
+        }
+        .url-input {
+            margin-bottom: 20px;
+        }
+        .url-input label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+        .url-input input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 12px;
+            font-family: monospace;
+        }
+        .note {
+            background: #fff3cd;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #ffc107;
+            margin: 15px 0;
+            font-size: 13px;
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>☁️ Azure Blob Uploader</h1>
+        <div class="subtitle">Upload files directly to Azure Blob Storage</div>
+
+        <div class="note">
+            💡 <strong>Important:</strong> Make sure you've set up CORS rules in your Azure Storage account.
+            Add <code>*</code> to Allowed Origins, and enable <code>PUT</code>, <code>GET</code> and <code>OPTIONS</code> methods,
+            and allow the <code>x-ms-blob-type</code> and <code>Content-Type</code> headers.
+        </div>
+
+        <div class="url-input">
+            <label>🔗 Azure Container SAS URL (container-level, sr=c):</label>
+            <input type="text" id="blobUrl" value="https://dlptesting.blob.core.windows.net/windows?sp=rcw&st=2026-07-20T05:21:02Z&se=2026-07-31T13:36:02Z&sv=2026-02-06&sr=c&sig=7%2FF1lJvb0PLELHofviPl50jXHEkYndACXuNyfsMhkk4%3D">
+            <div style="font-size: 11px; color: #999; margin-top: 5px;">
+                This should point to the <em>container</em> (e.g. .../windows?sp=rcw&amp;...&amp;sr=c&amp;sig=...).
+                The uploader will automatically append the file name before the SAS query string.
+            </div>
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+            <div>📁 Click or drag files here</div>
+            <div style="font-size: 12px; margin-top: 10px; color: #999;">
+                Files will be uploaded to Azure Blob Storage via PUT
+            </div>
+        </div>
+        <input type="file" id="fileInput" class="file-input" multiple>
+
+        <div class="file-info" id="fileInfo">
+            <div class="file-name" id="fileName"></div>
+            <div class="file-size" id="fileSize"></div>
+        </div>
+
+        <button id="uploadBtn" disabled>Upload to Azure Blob</button>
+
+        <div class="progress" id="progress">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div style="margin-top: 10px; font-size: 12px; text-align: center;" id="progressText">0%</div>
+        </div>
+
+        <div class="status" id="status"></div>
+
+        <div class="info">
+            💡 Files are uploaded directly to Azure Blob Storage using PUT method<br>
+            🔗 Files are accessible via the resulting blob URL (container URL + file name + SAS token)
+        </div>
+    </div>
+
+    <script>
+        let selectedFiles = [];
+
+        // DOM Elements
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const progress = document.getElementById('progress');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const statusDiv = document.getElementById('status');
+        const blobUrlInput = document.getElementById('blobUrl');
+
+        // Drag and drop handlers
+        uploadArea.addEventListener('click', () => fileInput.click());
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('drag-over');
+        });
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('drag-over');
+        });
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('drag-over');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+
+        function handleFiles(files) {
+            selectedFiles = Array.from(files);
+            if (selectedFiles.length > 0) {
+                const file = selectedFiles[0];
+                fileName.textContent = file.name;
+                fileSize.textContent = formatBytes(file.size);
+                fileInfo.style.display = 'block';
+                uploadBtn.disabled = false;
+            } else {
+                fileInfo.style.display = 'none';
+                uploadBtn.disabled = true;
+            }
+        }
+
+        uploadBtn.addEventListener('click', () => {
+            if (selectedFiles.length > 0) {
+                uploadToAzureBlob(selectedFiles[0]);
+            }
+        });
+
+        /**
+         * Builds a valid per-blob PUT URL from a container-level SAS URL
+         * by inserting the file name between the container path and the
+         * SAS query string.
+         *
+         * e.g. https://acct.blob.core.windows.net/windows?sp=rcw&...&sr=c&sig=...
+         *   -> https://acct.blob.core.windows.net/windows/myfile.png?sp=rcw&...&sr=c&sig=...
+         */
+        function buildBlobUrl(containerSasUrl, fileName) {
+            const [urlPath, sasQuery] = containerSasUrl.split('?');
+            const trimmedPath = urlPath.replace(/\/+$/, ''); // strip trailing slash if present
+            const encodedName = encodeURIComponent(fileName);
+            return `${trimmedPath}/${encodedName}${sasQuery ? '?' + sasQuery : ''}`;
+        }
+
+        async function uploadToAzureBlob(file) {
+            const containerUrl = blobUrlInput.value.trim();
+
+            if (!containerUrl) {
+                showStatus('❌ Please provide an Azure Blob container SAS URL', 'error');
+                return;
+            }
+
+            // Build the actual per-file blob URL (fixes: PUT was previously sent
+            // straight to the container URL, which is not a valid blob target)
+            const blobUrl = buildBlobUrl(containerUrl, file.name);
+
+            progress.style.display = 'block';
+            uploadBtn.disabled = true;
+            hideStatus();
+
+            try {
+                // Read file as blob
+                const fileData = await file.arrayBuffer();
+
+                // Create XMLHttpRequest for better progress tracking
+                const xhr = new XMLHttpRequest();
+
+                // Setup progress tracking
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const percent = (e.loaded / e.total) * 100;
+                        progressFill.style.width = percent + '%';
+                        progressText.textContent = Math.round(percent) + '%';
+                    }
+                });
+
+                // Handle completion
+                xhr.addEventListener('load', () => {
+                    if (xhr.status === 200 || xhr.status === 201) {
+                        showStatus(`✅ ${file.name} uploaded successfully to Azure Blob!`, 'success');
+                        progressFill.style.width = '100%';
+                        progressText.textContent = '100%';
+
+                        // Show the uploaded file URL
+                        const fileUrl = blobUrl.split('?')[0];
+                        statusDiv.innerHTML += `<div style="margin-top: 10px;">🔗 <a href="${blobUrl}" target="_blank">View/Download File</a><br>
+                        <small style="font-size: 11px;">${fileUrl}</small></div>`;
+                    } else if (xhr.status === 403) {
+                        showStatus(`❌ Upload failed: Server authentication error. Check CORS configuration and SAS token.`, 'error');
+                        console.error('Response:', xhr.responseText);
+                    } else if (xhr.status === 404) {
+                        showStatus(`❌ Upload failed (404): container may not exist, or the URL isn't scoped correctly.`, 'error');
+                        console.error('Response:', xhr.responseText);
+                    } else {
+                        showStatus(`❌ Upload failed with status ${xhr.status}: ${xhr.statusText}`, 'error');
+                        console.error('Response:', xhr.responseText);
+                    }
+                    resetAfterUpload();
+                });
+
+                // Handle errors
+                xhr.addEventListener('error', () => {
+                    showStatus(`❌ Upload failed: Network error - This is usually a CORS issue. Check the storage account's CORS rules (Allowed Origins/Methods/Headers).`, 'error');
+                    resetAfterUpload();
+                });
+
+                // Open and send the request
+                xhr.open('PUT', blobUrl);
+                xhr.setRequestHeader('x-ms-blob-type', 'BlockBlob');
+                xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+
+                xhr.send(fileData);
+
+            } catch (error) {
+                console.error('Upload error:', error);
+                showStatus(`❌ Upload failed: ${error.message}`, 'error');
+                resetAfterUpload();
+            }
+        }
+
+        function resetAfterUpload() {
+            setTimeout(() => {
+                progress.style.display = 'none';
+                progressFill.style.width = '0%';
+                progressText.textContent = '0%';
+                uploadBtn.disabled = false;
+                // Clear selected file
+                selectedFiles = [];
+                fileInfo.style.display = 'none';
+                fileInput.value = '';
+            }, 3000);
+        }
+
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        function hideStatus() {
+            statusDiv.style.display = 'none';
+            statusDiv.innerHTML = '';
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+    </script>
+</body>
+</html>
